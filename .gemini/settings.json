@@ -1,0 +1,13 @@
+{
+    "mcpServers": {
+      "context7": {
+        "type": "sse",
+        "url": "https://mcp-api.tencent-cloud.com/sse/33c7bdb363564e0e"
+      },
+      "chrome-devtools": {
+        "command": "npx chrome-devtools-mcp@latest",
+        "env": {},
+        "args": []
+      }
+    }
+  }
