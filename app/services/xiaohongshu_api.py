@@ -232,10 +232,44 @@ class XiaohongshuAPI:
             Cookie是否有效
         """
         try:
+            # 如果没有cookies,直接返回False
+            if not self.cookies:
+                return False
+
             async with httpx.AsyncClient(cookies=self.cookies, headers=self.headers, timeout=settings.TIMEOUT) as client:
-                # 尝试访问用户主页
-                response = await client.get(f"{self.base_url}/user/profile/me")
-                return response.status_code == 200
+                # 尝试访问小红书主页,检查是否包含登录标识
+                response = await client.get(self.base_url, follow_redirects=True)
+
+                if response.status_code != 200:
+                    return False
+
+                # 检查响应中是否包含登录状态的标识
+                # 如果页面包含登录后才有的元素,说明cookie有效
+                # 小红书登录后页面会包含用户信息相关的JavaScript变量
+                content = response.text
+
+                # 检查是否包含用户登录状态的标识
+                # 登录后通常会有 window.__INITIAL_STATE__ 且包含用户信息
+                if 'window.__INITIAL_STATE__' in content and '"user":' in content:
+                    return True
+
+                # 也可以尝试访问API端点验证
+                api_response = await client.get(
+                    f"{self.api_base_url}/api/sns/web/v1/user/selfinfo",
+                    follow_redirects=True
+                )
+
+                # 如果API返回200且有数据,说明认证成功
+                if api_response.status_code == 200:
+                    try:
+                        data = api_response.json()
+                        # 检查返回数据是否包含用户信息
+                        if data.get('success') or data.get('data'):
+                            return True
+                    except:
+                        pass
+
+                return False
 
         except Exception as e:
             logger.error(f"验证Cookie失败: {e}")
