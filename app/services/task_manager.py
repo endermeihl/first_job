@@ -103,11 +103,31 @@ class TaskManager:
         task.started_at = datetime.now()
         db.commit()
 
-        # 创建下载任务
+        # 创建下载任务 - 传递task_id而不是task对象和db对象
         download_task = asyncio.create_task(
-            self._download_task(db, task, cookies)
+            self._download_task_wrapper(task_id, cookies)
         )
         self.active_tasks[task_id] = download_task
+
+    async def _download_task_wrapper(self, task_id: str, cookies: Optional[str] = None):
+        """
+        下载任务包装器 - 创建独立的数据库会话
+        """
+        from ..database import SessionLocal
+
+        # 创建新的数据库会话
+        db = SessionLocal()
+        try:
+            # 查询任务
+            task = db.query(DownloadTask).filter(DownloadTask.task_id == task_id).first()
+            if not task:
+                logger.error(f"任务不存在: {task_id}")
+                return
+
+            # 执行下载
+            await self._download_task(db, task, cookies)
+        finally:
+            db.close()
 
     async def _download_task(self, db: Session, task: DownloadTask, cookies: Optional[str] = None):
         """
