@@ -2,9 +2,10 @@ fastapi
 uvicorn[standard]
 SQLAlchemy
 pydantic
+pydantic-settings
+httpx
 
 # Dev tools
 black
 ruff
 pytest
-httpx
