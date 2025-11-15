@@ -63,12 +63,12 @@ async def login(auth_data: UserAuthCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/validate")
-async def validate_cookies(cookies: str):
+async def validate_cookies(auth_data: UserAuthCreate):
     """
     验证Cookie是否有效
     """
     try:
-        xhs_api = XiaohongshuAPI(cookies)
+        xhs_api = XiaohongshuAPI(auth_data.cookies)
         is_valid = await xhs_api.validate_cookies()
 
         return {
