@@ -2,6 +2,11 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
+.Python
+*.egg-info/
+.installed.cfg
+*.egg
 
 # Virtual Environment
 venv/
@@ -16,7 +21,36 @@ pip-delete-this-directory.txt
 .vscode/
 *.swp
 *.swo
+*~
 
 # OS-specific
 .DS_Store
 Thumbs.db
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+sql_app.db
+xiaohongshu_downloader.db
+
+# Environment
+.env
+.env.local
+
+# Downloads
+downloads/
+*.mp4
+*.tmp
+
+# Cookies
+cookies.json
+
+# Logs
+*.log
+logs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
