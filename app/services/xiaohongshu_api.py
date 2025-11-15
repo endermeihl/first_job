@@ -139,7 +139,12 @@ class XiaohongshuAPI:
             match = re.search(pattern, html, re.DOTALL)
             if match:
                 try:
-                    json_str = match.group(1).replace(':undefined', ':null').replace(':null,', ':"",')
+                    # 更彻底地清理JavaScript特有的值
+                    json_str = match.group(1)
+                    json_str = re.sub(r':undefined\b', ':null', json_str)
+                    json_str = re.sub(r',\s*}', '}', json_str)  # 移除尾部逗号
+                    json_str = re.sub(r',\s*]', ']', json_str)  # 移除尾部逗号
+
                     state_data = json.loads(json_str)
                     logger.info(f"成功使用模式 {i+1} 匹配到 __INITIAL_STATE__")
 
@@ -161,77 +166,131 @@ class XiaohongshuAPI:
 
         if state_data:
             try:
-                # 解析视频信息
-                note_data = state_data.get('note', {}).get('noteDetailMap', {})
-                logger.info(f"noteDetailMap 包含 {len(note_data)} 个条目")
+                # 尝试多种数据路径来查找视频信息
+                note = None
+                video = None
 
-                if note_data:
-                    for note_id, note_info in note_data.items():
-                        note = note_info.get('note', {})
-                        video = note.get('video', {})
+                # 路径1: state_data.note.noteDetailMap[note_id].note
+                note_detail_map = state_data.get('note', {}).get('noteDetailMap', {})
+                logger.info(f"noteDetailMap 包含 {len(note_detail_map)} 个条目")
 
-                        logger.info(f"正在解析笔记 {note_id}, 类型: {note.get('type', 'unknown')}")
+                if note_detail_map:
+                    # 遍历所有笔记，找到匹配的或第一个视频类型的笔记
+                    for note_id_key, note_info in note_detail_map.items():
+                        logger.info(f"检查笔记 {note_id_key}")
+                        temp_note = note_info.get('note', {})
+                        if temp_note:
+                            # 优先匹配video_id，或者选择第一个有视频的笔记
+                            if note_id_key == video_id or temp_note.get('type') == 'video' or temp_note.get('video'):
+                                note = temp_note
+                                logger.info(f"找到笔记 {note_id_key}, 类型: {note.get('type', 'unknown')}")
+                                break
 
-                        # 尝试多种方式提取视频URL
-                        video_url = ''
+                # 路径2: 如果上面没找到，尝试 state_data.note.note (直接路径)
+                if not note:
+                    logger.info("尝试直接从 state_data.note.note 获取")
+                    note = state_data.get('note', {}).get('note', {})
 
-                        # 方式1: 从 media.stream.h264 获取
-                        if video:
-                            media = video.get('media', {})
-                            stream = media.get('stream', {})
-                            h264_list = stream.get('h264', [])
+                # 路径3: 尝试 state_data.note.noteDetail
+                if not note or not note.get('video'):
+                    logger.info("尝试从 state_data.note.noteDetail 获取")
+                    note_detail = state_data.get('note', {}).get('noteDetail', {})
+                    if note_detail:
+                        note = note_detail.get('note', note_detail)
 
-                            logger.info(f"h264 列表长度: {len(h264_list)}")
+                # 获取video对象
+                if note:
+                    video = note.get('video', {})
+                    logger.info(f"note类型: {note.get('type')}, 是否包含video: {bool(video)}")
 
-                            if h264_list and len(h264_list) > 0:
-                                # 尝试获取 masterUrl
-                                video_url = h264_list[0].get('masterUrl', '')
+                if not video:
+                    logger.warning("在所有路径中都未找到video对象")
+                    # 输出数据结构以便调试
+                    if debug:
+                        logger.info(f"state_data顶层键: {list(state_data.keys())}")
+                        if 'note' in state_data:
+                            logger.info(f"state_data.note的键: {list(state_data.get('note', {}).keys())}")
 
-                                # 如果 masterUrl 为空，尝试 backupUrls
-                                if not video_url:
-                                    backup_urls = h264_list[0].get('backupUrls', [])
-                                    if backup_urls and len(backup_urls) > 0:
-                                        video_url = backup_urls[0]
-                                        logger.info("从 backupUrls 获取视频链接")
+                # 尝试多种方式提取视频URL
+                video_url = ''
 
-                                # 如果还是为空，尝试直接从 stream 获取
-                                if not video_url and 'url' in h264_list[0]:
-                                    video_url = h264_list[0].get('url', '')
-                                    logger.info("从 h264[0].url 获取视频链接")
+                # 方式1: 从 media.stream.h264 获取
+                if video:
+                    media = video.get('media', {})
+                    stream = media.get('stream', {})
+                    h264_list = stream.get('h264', [])
 
-                            # 方式2: 尝试从 video.consumer.originVideoKey 获取
-                            if not video_url:
-                                consumer = video.get('consumer', {})
-                                origin_video_key = consumer.get('originVideoKey', '')
-                                if origin_video_key:
-                                    # 通常需要拼接CDN域名
-                                    video_url = f"https://sns-video-bd.xhscdn.com/{origin_video_key}"
-                                    logger.info("从 originVideoKey 构建视频链接")
+                    logger.info(f"h264 列表长度: {len(h264_list) if h264_list else 0}")
 
-                            # 方式3: 尝试从 video.masterUrl 直接获取
-                            if not video_url and 'masterUrl' in video:
-                                video_url = video.get('masterUrl', '')
-                                logger.info("从 video.masterUrl 获取视频链接")
+                    if h264_list and len(h264_list) > 0:
+                        h264_item = h264_list[0]
+                        logger.info(f"h264[0] 的键: {list(h264_item.keys())}")
 
+                        # 尝试获取 masterUrl
+                        video_url = h264_item.get('masterUrl', '')
                         if video_url:
-                            logger.info(f"成功提取视频URL: {video_url[:100]}...")
-                        else:
-                            logger.warning("未能提取视频URL，所有方法均失败")
+                            logger.info("从 h264[0].masterUrl 获取视频链接")
 
-                        return {
-                            'video_id': video_id,
-                            'title': note.get('title', ''),
-                            'desc': note.get('desc', ''),
-                            'author': note.get('user', {}).get('nickname', ''),
-                            'author_id': note.get('user', {}).get('userId', ''),
-                            'cover_url': video.get('cover', {}).get('url', '') if video else '',
-                            'video_url': video_url,
-                            'duration': video.get('duration', 0) if video else 0,
-                            'width': video.get('width', 0) if video else 0,
-                            'height': video.get('height', 0) if video else 0,
-                            'parts': self._extract_video_parts(video) if video else [],
-                            'available_qualities': ['hd', 'sd', 'ld'],  # 示例
-                        }
+                        # 如果 masterUrl 为空，尝试 backupUrls
+                        if not video_url:
+                            backup_urls = h264_item.get('backupUrls', [])
+                            if backup_urls and len(backup_urls) > 0:
+                                video_url = backup_urls[0]
+                                logger.info("从 h264[0].backupUrls[0] 获取视频链接")
+
+                        # 如果还是为空，尝试直接从 url 字段获取
+                        if not video_url and 'url' in h264_item:
+                            video_url = h264_item.get('url', '')
+                            logger.info("从 h264[0].url 获取视频链接")
+
+                # 方式2: 尝试从 video.consumer.originVideoKey 获取
+                if not video_url and video:
+                    consumer = video.get('consumer', {})
+                    origin_video_key = consumer.get('originVideoKey', '')
+                    if origin_video_key:
+                        # 通常需要拼接CDN域名
+                        video_url = f"https://sns-video-bd.xhscdn.com/{origin_video_key}"
+                        logger.info("从 video.consumer.originVideoKey 构建视频链接")
+
+                # 方式3: 尝试从 video.masterUrl 直接获取
+                if not video_url and video and 'masterUrl' in video:
+                    video_url = video.get('masterUrl', '')
+                    logger.info("从 video.masterUrl 获取视频链接")
+
+                # 方式4: 尝试从 video 的其他可能字段获取
+                if not video_url and video:
+                    # 尝试 playAddr
+                    if 'playAddr' in video:
+                        video_url = video.get('playAddr', '')
+                        logger.info("从 video.playAddr 获取视频链接")
+                    # 尝试 videoUrl
+                    elif 'videoUrl' in video:
+                        video_url = video.get('videoUrl', '')
+                        logger.info("从 video.videoUrl 获取视频链接")
+
+                if video_url:
+                    logger.info(f"✅ 成功提取视频URL: {video_url[:100]}...")
+                else:
+                    logger.warning("❌ 未能提取视频URL，所有方法均失败")
+                    if debug and video:
+                        logger.info(f"video对象的键: {list(video.keys())}")
+
+                # 返回结果
+                if note:
+                    return {
+                        'video_id': video_id,
+                        'title': note.get('title', note.get('desc', '')[:50]),  # 如果没有title用desc的前50字符
+                        'desc': note.get('desc', ''),
+                        'author': note.get('user', {}).get('nickname', ''),
+                        'author_id': note.get('user', {}).get('userId', ''),
+                        'cover_url': video.get('cover', {}).get('url', '') if video else '',
+                        'video_url': video_url,
+                        'duration': video.get('duration', 0) if video else 0,
+                        'width': video.get('width', 0) if video else 0,
+                        'height': video.get('height', 0) if video else 0,
+                        'parts': self._extract_video_parts(video) if video else [],
+                        'available_qualities': ['hd', 'sd', 'ld'],  # 示例
+                    }
             except Exception as e:
                 logger.error(f"解析视频页面失败: {e}")
                 import traceback

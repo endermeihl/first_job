@@ -139,6 +139,51 @@ ls -la /tmp/xiaohongshu_debug/
 3. 分析实际的数据结构
 4. 根据实际结构调整解析代码
 
-## 更新日期
+## 更新历史
 
-2025-11-15
+### 2025-11-15 (第二次修复)
+
+**问题**: 用户反馈"未能提取视频URL，所有方法均失败"，说明之前的修复不够完整。
+
+**新增修复内容**:
+
+1. **增强数据路径探测** (`app/services/xiaohongshu_api.py:169-212`)
+   - 新增多个数据路径尝试:
+     - 路径1: `state_data.note.noteDetailMap[note_id].note` (原有)
+     - 路径2: `state_data.note.note` (新增，直接路径)
+     - 路径3: `state_data.note.noteDetail` (新增)
+   - 智能匹配：优先查找匹配的video_id或包含video的笔记
+
+2. **改进JSON清理逻辑** (第143-146行)
+   - 使用正则表达式更彻底地清理JavaScript特有值
+   - 移除尾部逗号避免JSON解析错误
+   - 处理 `undefined` 关键字
+
+3. **新增视频URL提取方法** (第260-269行)
+   - 方式4: 从 `video.playAddr` 获取
+   - 方式5: 从 `video.videoUrl` 获取
+
+4. **增强调试信息** (第204-212, 223, 227, 275-276行)
+   - 输出数据结构的关键路径和键
+   - 显示找到的note类型和video对象
+   - 输出h264对象的所有可用字段
+   - 输出video对象的所有可用字段
+
+5. **新增增强调试脚本** (`debug_video_extraction.py`)
+   - 分步骤显示提取过程
+   - 自动分析JSON数据结构
+   - 生成详细的诊断报告
+   - 提供明确的排查建议
+
+6. **改进标题提取** (第282行)
+   - 如果没有title字段，使用desc的前50字符作为标题
+
+**使用新的调试脚本**:
+```bash
+python debug_video_extraction.py "https://www.xiaohongshu.com/explore/6909e6c1000000000300ea0e"
+
+# 查看详细的数据结构分析和诊断报告
+ls -la /tmp/xiaohongshu_debug/
+```
+
+### 2025-11-15 (初次修复)
